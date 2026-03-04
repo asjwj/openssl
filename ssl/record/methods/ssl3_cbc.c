@@ -405,19 +405,20 @@ int ssl3_cbc_digest_record(const EVP_MD *md,
                 b = data[k - header_length];
             k++;
 
-            is_past_c = is_block_a & constant_time_ge_8_s(j, c);
-            is_past_cp1 = is_block_a & constant_time_ge_8_s(j, c + 1);
-            /*
-             * If this is the block containing the end of the application
-             * data, and we are at the offset for the 0x80 value, then
-             * overwrite b with 0x80.
-             */
-            b = constant_time_select_8(is_past_c, 0x80, b);
-            /*
-             * If this block contains the end of the application data
-             * and we're past the 0x80 value then just write zero.
-             */
-            b = b & ~is_past_cp1;
+/* Derleyiciyi bit oyunlarını bozmaması için zorlayan bir bariyer ekliyoruz */
+#define RELAX_COMPILER(var) __asm__("" : "+r"(var))
+
+// ... döngü içinde ...
+unsigned char is_past_c = is_block_a & constant_time_ge_8_s(j, c);
+RELAX_COMPILER(is_past_c); // Derleyici artık bu değişkenin sonucunu tahmin edemez
+
+unsigned char is_past_cp1 = is_block_a & constant_time_ge_8_s(j, c + 1);
+RELAX_COMPILER(is_past_cp1);
+
+/* 0x80 (padding başı) ekleme işlemini daha sert bit maskeleriyle yapıyoruz */
+b = (b & ~is_past_c) | (is_past_c & 0x80);
+b &= ~is_past_cp1;
+            
             /*
              * If this is index_b (the final block), but not index_a (the end
              * of the data), then the 64-bit length didn't fit into index_a
